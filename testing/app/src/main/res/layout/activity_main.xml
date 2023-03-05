@@ -7,6 +7,31 @@
     tools:context=".MainActivity">
 
     <FrameLayout
+        android:id="@+id/displayContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        tools:context=".VideoFragment">
+
+        <TextView
+            android:id="@+id/harLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginTop="70dp"
+            android:layout_marginEnd="20dp"
+            android:alpha="0.8"
+            android:background="#80000000"
+            android:padding="16dp"
+            android:text="label"
+            android:textColor="#ffffff"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+
+    </FrameLayout>
+
+    <FrameLayout
         android:id="@+id/preview_display_layout"
         android:layout_width="fill_parent"
         android:layout_height="fill_parent"
@@ -19,5 +44,7 @@
             android:layout_height="fill_parent"
             android:gravity="center"
             android:text="@string/no_camera_access" />
+
     </FrameLayout>
+
 </androidx.constraintlayout.widget.ConstraintLayout>

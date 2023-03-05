@@ -88,7 +88,10 @@ dependencies {
     annotationProcessor "com.google.auto.value:auto-value:$auto_value_version"
 
     //Multik (Multidimensional array library for Kotlin.)
-    implementation "org.jetbrains.kotlinx:multik-core:0.2.0"
-    implementation "org.jetbrains.kotlinx:multik-default:0.2.0"
+    implementation "org.jetbrains.kotlinx:multik-core:0.2.1"
+    implementation "org.jetbrains.kotlinx:multik-default:0.2.1"
 
+    //onnx
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.14.0'
+//    implementation(name: "onnxruntime-release", ext: "aar")
 }

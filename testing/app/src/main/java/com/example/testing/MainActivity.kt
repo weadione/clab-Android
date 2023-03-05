@@ -1,12 +1,18 @@
 package com.example.testing
 
-import android.content.res.AssetManager
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtLoggingLevel
+import ai.onnxruntime.OrtSession
 import android.graphics.SurfaceTexture
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.*
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.testing.databinding.ActivityMainBinding
 import com.google.mediapipe.components.CameraHelper.CameraFacing
 import com.google.mediapipe.components.CameraXPreviewHelper
 import com.google.mediapipe.components.ExternalTextureConverter
@@ -18,19 +24,13 @@ import com.google.mediapipe.framework.Packet
 import com.google.mediapipe.framework.PacketGetter
 import com.google.mediapipe.glutil.EglManager
 import org.jetbrains.kotlinx.multik.api.*
-import org.jetbrains.kotlinx.multik.api.math.exp
-import org.jetbrains.kotlinx.multik.ndarray.complex.complexDoubleArrayOf
 import org.jetbrains.kotlinx.multik.ndarray.data.*
-import org.jetbrains.kotlinx.multik.ndarray.operations.append
-import org.jetbrains.kotlinx.multik.ndarray.operations.expandDims
-import org.jetbrains.kotlinx.multik.ndarray.operations.minus
-import org.jetbrains.kotlinx.multik.ndarray.operations.stack
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
-import java.io.FileInputStream
-import java.io.IOException
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
+import org.jetbrains.kotlinx.multik.ndarray.operations.*
+import java.nio.FloatBuffer
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.concurrent.fixedRateTimer
+import kotlin.math.exp
 
 
 class MainActivity : AppCompatActivity() {
@@ -42,17 +42,13 @@ class MainActivity : AppCompatActivity() {
     private val CAMERA_FACING = CameraFacing.BACK
     private val FLIP_FRAMES_VERTICALLY = true
     private var frame_cnt =1
+    private lateinit var binding: ActivityMainBinding
 
     //skeleton data for 144frames
     //If the number of frames obtained is less than 144, empty frames are just 0.0f
     private var frames_skeleton = mk.d3array(144,25,3){0.0f}
-    companion object {
-        init {
-            // Load all native libraries needed by the app.
-            System.loadLibrary("mediapipe_jni")
-            System.loadLibrary("opencv_java3")
-        }
-    }
+    private var skeletonBuffer =  ArrayList<D2Array<Float>>()
+
 
     // {@link SurfaceTexture} where the camera-preview frames can be accessed.
     private var previewFrameTexture: SurfaceTexture? = null
@@ -68,7 +64,13 @@ class MainActivity : AppCompatActivity() {
     private var converter: ExternalTextureConverter? = null
     // Handles camera access via the {@link CameraX} Jetpack support library.
     private var cameraHelper: CameraXPreviewHelper? = null
+    private lateinit var harLabel: TextView
+    private var prevSamplingTime: Long = 0
+    private var isGraphRunning: Boolean = false
 
+
+    private var ortEnv: OrtEnvironment? = null
+    private var ortSession: OrtSession? = null
     init {
         System.loadLibrary("mediapipe_jni");
         System.loadLibrary("opencv_java3");
@@ -76,9 +78,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        ortEnv = OrtEnvironment.getEnvironment(OrtLoggingLevel.ORT_LOGGING_LEVEL_FATAL)
+        ortSession = CreateOrtSession()
+
+
         previewDisplayView = SurfaceView(this)
+
+        harLabel = binding.harLabel
+        harLabel.visibility = View.VISIBLE
         setPreviewDisplay()
+        val skeletonTimer = fixedRateTimer(name="SkeletonTimer", initialDelay = 0L, period = 4000L){
+            getSkelton()
+        }
 
         AndroidAssetUtil.initializeNativeAssetManager(this);
         eglManager = EglManager(null);
@@ -100,26 +113,97 @@ class MainActivity : AppCompatActivity() {
             val poseLandmarks: LandmarkList =
                 LandmarkList.parseFrom(landmarksRaw)
 
-            //debug code
-            Log.v(TAG, getPoseLandmarksDebugString(poseLandmarks))
+            saveSkeletonData(poseLandmarks)
+            isGraphRunning = true
+        }
+        PermissionHelper.checkAndRequestCameraPermissions(this);
+    }
+    private fun getSkelton() {
+        if(isGraphRunning) {
+            sampleSkeletonData()
+            val inputData = convertSkeletonData()
+            val resString = harInference(inputData)
+            clearSkeletonData()
+            Log.v("label:", resString)
+            Log.v("time:", (SystemClock.uptimeMillis() - prevSamplingTime).toString())
+            prevSamplingTime = SystemClock.uptimeMillis()
+        }
+    }
+    fun inferenceOrt(inputData: MultiArray<Float, DN>): FloatArray{
+        val inputName = ortSession?.inputNames?.iterator()?.next()
+        val shape = longArrayOf(1, 3, 144, 25, 2)
+        val ortEnv = OrtEnvironment.getEnvironment()
+        val floatArrayData = inputData.toFloatArray()
+        val buffer =FloatBuffer.allocate(floatArrayData.size)
+        buffer.put(floatArrayData)
+        buffer.flip()
+        ortEnv.use {
+            // Create input tensor
+            val input_tensor = OnnxTensor.createTensor(ortEnv, buffer, shape)
+            input_tensor.use {
+                // Run the inference and get the output tensor
+                val output = ortSession?.run(Collections.singletonMap(inputName, input_tensor))
+                val prediction: OnnxTensor = output?.toList()?.get(0)?.toPair()?.second as OnnxTensor
 
-            if(frame_cnt<60){//Collect Skeleton data for 60 frames or 4 seconds(4 seconds not yet implemented).
-                saveSkeletonData(poseLandmarks) //save landmarks in array shape (144,25,3)
-                frame_cnt++
-            }
-            else{
-                saveSkeletonData(poseLandmarks)
-
-                convertSkeletonData()   //todo: convert landmarks to joint, velocity,bone data
-                frames_skeleton = mk.d3array(144,25,3){0.0f} // reinitialize landmarks array
-                frame_cnt=1
-
+                val predictionArray: FloatArray = FloatArray(prediction.floatBuffer.remaining())
+                prediction.floatBuffer.get(predictionArray)
+                return predictionArray
             }
         }
+    }
+    private fun softmax(input: FloatArray): FloatArray {
+        val output = FloatArray(input.size)
+        var sum = 0.0f
 
+        // Compute exponential of each element and sum them up
+        for (i in input.indices) {
+            output[i] = exp(input[i].toDouble()).toFloat()
+            sum += output[i]
+        }
 
-//        har_test()  //har test code
-        PermissionHelper.checkAndRequestCameraPermissions(this);
+        // Normalize by dividing each element by the sum
+        for (i in output.indices) {
+            output[i] /= sum
+        }
+
+        return output
+    }
+
+    private fun CreateOrtSession(): OrtSession? {
+        val so = OrtSession.SessionOptions()
+        return ortEnv?.createSession(readModel(), so)
+    }
+
+    private fun readModel(): ByteArray {
+        return  resources.openRawResource(R.raw.har_gcn).readBytes()
+    }
+    private fun getLabel(output: FloatArray): String{
+        return try {
+            val big3 = arrayOf(
+                output.sliceArray(0 until 17).sum(),
+                output[17],
+                output[18]
+            )
+
+            var top1Index = 0
+            var topValue = big3[0]
+
+            for (i in 1 until big3.size) {
+                if (big3[i] > topValue) {
+                    top1Index = i
+                    topValue = big3[i]
+                }
+            }
+
+            when (top1Index) {
+                0 -> "Other"
+                1 -> "Painting:" + String.format("%.1f", (big3[top1Index] * 100)) + "%"
+                else -> "Interview:" + String.format("%.1f", (big3[top1Index] * 100)) + "%"
+            }
+        } catch (e: Exception) {
+            e.message?.let { Log.v("HAR", it) }
+            ""
+        }
     }
 
     override fun onResume() {
@@ -213,64 +297,6 @@ class MainActivity : AppCompatActivity() {
         cameraHelper!!.startCamera(this, CAMERA_FACING,  /*surfaceTexture=*/null)
     }
 
-    //harmodel test code
-    private fun har_test(){
-        val am = resources.assets
-        val harModel =  getModelByteBuffer(am, "HAR_model.tflite")
-        val interpreter = Interpreter(harModel)
-        Log.d("OUTPUT: ", "11")
-
-        //get random input data buffer
-        val inputShape = interpreter.getInputTensor(0).shape()
-        val inputBuffer = TensorBuffer.createFixedSize(inputShape, interpreter.getInputTensor(0).dataType())
-        val inputData = FloatArray(1 * 3 * 6 * 144 * 25 * 2){ Math.random().toFloat() }
-        inputBuffer.loadArray(inputData)
-        Log.d("OUTPUT: ", "Input shape: 22}")
-
-
-        //get output data buffer
-        val outputShape = interpreter.getOutputTensor(0).shape()
-        val outputBuffer = TensorBuffer.createFixedSize(outputShape, interpreter.getOutputTensor(0).dataType())
-        Log.d("OUTPUT: ", "Input shape: 33")
-
-        //run
-        interpreter.run(inputBuffer.buffer, outputBuffer.buffer.rewind())
-
-        //print estimated values for 19 labels
-        Log.d("OUTPUT0: ", "output value: ${outputBuffer.floatArray[0]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[1]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[2]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[3]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[4]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[5]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[6]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[7]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[8]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[9]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[10]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[11]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[12]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[13]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[14]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[15]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[16]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[17]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[18]}")
-        Log.d("OUTPUT1: ", "output value: ${outputBuffer.floatArray[19]}")
-    }
-
-    //load model
-    @Throws(IOException::class)
-    private fun getModelByteBuffer(assetManager: AssetManager, modelPath: String): MappedByteBuffer {
-        val fileDescriptor = assetManager.openFd(modelPath)
-        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-        val fileChannel = inputStream.channel
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
-    }
-
-
     //save skeleton data in one frame and append to (144,25,3) ndarray
     private fun saveSkeletonData(poseLandmarks: LandmarkList){
         var one_frame_skeleton = mk.d2array(25,3){0.0f}
@@ -282,41 +308,49 @@ class MainActivity : AppCompatActivity() {
                 one_frame_skeleton[i, 2] = landmark[i].z
             }
         }
-        frames_skeleton[frame_cnt] = one_frame_skeleton
+        skeletonBuffer.add(one_frame_skeleton)
+    }
+
+    private fun sampleSkeletonData(){
+        val curskeletonBuffer = ArrayList<D2Array<Float>>()
+        curskeletonBuffer.addAll(skeletonBuffer)
+        skeletonBuffer.clear()
+
+        val frameNum = curskeletonBuffer.size
+        Log.v("num",frameNum.toString())
+        if(frameNum>=60) {
+            val skipInterval = frameNum / 60.0
+            for (i in 0 until 60)
+                frames_skeleton[i] = curskeletonBuffer[(i * skipInterval).toInt()]
+        }
+        else
+            for(i in 0 until frameNum)
+                frames_skeleton[i] = curskeletonBuffer[i]
     }
 
     //todo: output of this functions is same as model input
-    private fun convertSkeletonData(){
+    private fun convertSkeletonData() : MultiArray<Float, DN>{
         //dummy humman skeleton data to align the input dimension of the model
         val dummy_human_skeleton = mk.d3array(144,25,3) {0.0f}
         val humans_skeleton = mk.stack(frames_skeleton,dummy_human_skeleton)
 
         //Transpose for processing in multiInput
         val transpose_skeleton = humans_skeleton.transpose(3,1,2,0)
-
-        val input_data = mutiInput(transpose_skeleton)
+        val ret_skeleton = transpose_skeleton.expandDims(axis = 0)
+        return ret_skeleton
     }
 
-    //todo: same function as multi_input() in Runner.py
-    private fun mutiInput(transposeSkeleton: NDArray<Float, D4>):Any {
-        val C = 3
-        val T = 144
-        val V = 25
-        val M = 2
-
-        val joint_tmp = mk.d4array(C,T,V,M){0.0f}
-        val velocity = mk.d4array(C*2,T,V,M){0.0f}
-        val bone = mk.d4array(C*2,T,V,M){0.0f}
-        val joint = mk.stack(transposeSkeleton,joint_tmp)
-
-        for(i in 0 until V){
-            val tmp = transposeSkeleton[0 until C,0 until T, i, 0 until M] - transposeSkeleton[0 until C,0 until T, 1, 0 until M]
-//            joint.set(i,tmp)
-//            joint_tmp.cat(tmp, axis = 2)
-        }
-        return transposeSkeleton //temp return for avoid error
+    private fun harInference(inputData: MultiArray<Float, DN>): String{
+        val modelOutput = inferenceOrt(inputData)
+        val prob = softmax(modelOutput)
+        val label = getLabel(prob)
+        return label
     }
 
+    private fun clearSkeletonData(){
+        frames_skeleton =
+            mk.d3array(144, 25, 3) { 0.0f } // reinitialize landmarks array
+    }
 
     //debug code
     private fun getPoseLandmarksDebugString(poseLandmarks: LandmarkList): String {
@@ -325,11 +359,34 @@ class MainActivity : AppCompatActivity() {
                 
                 """.trimIndent()
 
-        var poseMarkers = poseLandmarks.landmarkList[16]
         Log.v(
             TAG, """
      ======Degree Of Position]======
-     test :${poseMarkers.x},${poseMarkers.y},${poseMarkers.z}
+     nose :${poseLandmarks.landmarkList[0].x},${poseLandmarks.landmarkList[0].y},${poseLandmarks.landmarkList[0].z},${poseLandmarks.landmarkList[0].visibility},
+
+     """.trimIndent()
+        )
+        Log.v(
+            TAG, """
+     left ear :${poseLandmarks.landmarkList[7].x},${poseLandmarks.landmarkList[7].y},${poseLandmarks.landmarkList[7].z},${poseLandmarks.landmarkList[7].visibility},
+
+     """.trimIndent()
+        )
+        Log.v(
+            TAG, """
+     right ear :${poseLandmarks.landmarkList[8].x},${poseLandmarks.landmarkList[8].y},${poseLandmarks.landmarkList[8].z},${poseLandmarks.landmarkList[8].visibility},
+
+     """.trimIndent()
+        )
+        Log.v(
+            TAG, """
+     left hip :${poseLandmarks.landmarkList[23].x},${poseLandmarks.landmarkList[23].y},${poseLandmarks.landmarkList[23].z},${poseLandmarks.landmarkList[23].visibility},
+
+     """.trimIndent()
+        )
+        Log.v(
+            TAG, """
+     right ear :${poseLandmarks.landmarkList[24].x},${poseLandmarks.landmarkList[24].y},${poseLandmarks.landmarkList[24].z},${poseLandmarks.landmarkList[24].visibility},
 
      """.trimIndent()
         )
