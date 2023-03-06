@@ -4,9 +4,10 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtLoggingLevel
 import ai.onnxruntime.OrtSession
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.SurfaceTexture
-import android.os.Bundle
-import android.os.SystemClock
+import android.os.*
 import android.util.Log
 import android.util.Size
 import android.view.*
@@ -41,7 +42,6 @@ class MainActivity : AppCompatActivity() {
     private val OUTPUT_LANDMARKS_STREAM_NAME = "pose_world_landmarks"
     private val CAMERA_FACING = CameraFacing.BACK
     private val FLIP_FRAMES_VERTICALLY = true
-    private var frame_cnt =1
     private lateinit var binding: ActivityMainBinding
 
     //skeleton data for 144frames
@@ -64,9 +64,13 @@ class MainActivity : AppCompatActivity() {
     private var converter: ExternalTextureConverter? = null
     // Handles camera access via the {@link CameraX} Jetpack support library.
     private var cameraHelper: CameraXPreviewHelper? = null
-    private lateinit var harLabel: TextView
+    lateinit var harLabel: TextView
     private var prevSamplingTime: Long = 0
     private var isGraphRunning: Boolean = false
+    private var label: String = ""
+    private var previousLabel = 0
+    private var updatedLabel = 0
+    private var labelColor = Color.WHITE
 
 
     private var ortEnv: OrtEnvironment? = null
@@ -76,18 +80,31 @@ class MainActivity : AppCompatActivity() {
         System.loadLibrary("opencv_java3");
     }
 
+    private val handler = object :Handler(){
+        override fun handleMessage(msg: Message) {
+                harLabel.setTextColor(labelColor)
+                harLabel.setText(label)
+            }
+        }
+
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
+        harLabel = binding.harLabel
         setContentView(binding.root)
         ortEnv = OrtEnvironment.getEnvironment(OrtLoggingLevel.ORT_LOGGING_LEVEL_FATAL)
         ortSession = CreateOrtSession()
-
 
         previewDisplayView = SurfaceView(this)
 
         harLabel = binding.harLabel
         harLabel.visibility = View.VISIBLE
+
+
+
+
         setPreviewDisplay()
         val skeletonTimer = fixedRateTimer(name="SkeletonTimer", initialDelay = 0L, period = 4000L){
             getSkelton()
@@ -118,13 +135,19 @@ class MainActivity : AppCompatActivity() {
         }
         PermissionHelper.checkAndRequestCameraPermissions(this);
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+    }
+
     private fun getSkelton() {
         if(isGraphRunning) {
             sampleSkeletonData()
             val inputData = convertSkeletonData()
             val resString = harInference(inputData)
+
             clearSkeletonData()
-            Log.v("label:", resString)
+            Log.v("label:", label)
             Log.v("time:", (SystemClock.uptimeMillis() - prevSamplingTime).toString())
             prevSamplingTime = SystemClock.uptimeMillis()
         }
@@ -195,8 +218,20 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            if(updatedLabel!=top1Index && previousLabel == top1Index){
+                updatedLabel = top1Index
+            }
+            previousLabel = top1Index
+
+            top1Index = updatedLabel
+
+            if(top1Index==1)
+                labelColor = Color.RED
+            else
+                labelColor = Color.GREEN
+
             when (top1Index) {
-                0 -> "Other"
+                0 -> ""
                 1 -> "Painting:" + String.format("%.1f", (big3[top1Index] * 100)) + "%"
                 else -> "Interview:" + String.format("%.1f", (big3[top1Index] * 100)) + "%"
             }
@@ -210,6 +245,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         converter = ExternalTextureConverter(eglManager!!.context)
         converter!!.setFlipY(FLIP_FRAMES_VERTICALLY)
+//        converter!!.setBufferPoolMaxSize(2)
         converter!!.setConsumer(processor)
         if (PermissionHelper.cameraPermissionsGranted(this)) {
             startCamera()
@@ -261,6 +297,7 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+
     protected fun onPreviewDisplaySurfaceChanged(
         holder: SurfaceHolder?, format: Int, width: Int, height: Int
     ) {
@@ -271,7 +308,10 @@ class MainActivity : AppCompatActivity() {
         val displaySize = cameraHelper!!.computeDisplaySizeFromViewSize(viewSize)
         val isCameraRotated = cameraHelper!!.isCameraRotated
 
-        //displaySize.getHeight(); 핸드폰 디스플레이 사이즈를 의미
+        Log.v("sizex",displaySize.width.toString())
+        Log.v("sizey",displaySize.height.toString())
+
+        //displaySize.getHeight(); 핸드폰 디스플레이사이즈를 의미
         //displaySize.getWidth();
 
 
@@ -340,12 +380,14 @@ class MainActivity : AppCompatActivity() {
         return ret_skeleton
     }
 
-    private fun harInference(inputData: MultiArray<Float, DN>): String{
+    private fun harInference(inputData: MultiArray<Float, DN>){
         val modelOutput = inferenceOrt(inputData)
         val prob = softmax(modelOutput)
-        val label = getLabel(prob)
-        return label
+        label = getLabel(prob)
+
+        handler.sendEmptyMessage(0)
     }
+
 
     private fun clearSkeletonData(){
         frames_skeleton =
@@ -366,30 +408,8 @@ class MainActivity : AppCompatActivity() {
 
      """.trimIndent()
         )
-        Log.v(
-            TAG, """
-     left ear :${poseLandmarks.landmarkList[7].x},${poseLandmarks.landmarkList[7].y},${poseLandmarks.landmarkList[7].z},${poseLandmarks.landmarkList[7].visibility},
 
-     """.trimIndent()
-        )
-        Log.v(
-            TAG, """
-     right ear :${poseLandmarks.landmarkList[8].x},${poseLandmarks.landmarkList[8].y},${poseLandmarks.landmarkList[8].z},${poseLandmarks.landmarkList[8].visibility},
 
-     """.trimIndent()
-        )
-        Log.v(
-            TAG, """
-     left hip :${poseLandmarks.landmarkList[23].x},${poseLandmarks.landmarkList[23].y},${poseLandmarks.landmarkList[23].z},${poseLandmarks.landmarkList[23].visibility},
-
-     """.trimIndent()
-        )
-        Log.v(
-            TAG, """
-     right ear :${poseLandmarks.landmarkList[24].x},${poseLandmarks.landmarkList[24].y},${poseLandmarks.landmarkList[24].z},${poseLandmarks.landmarkList[24].visibility},
-
-     """.trimIndent()
-        )
         return poseLandmarkStr
     }
 }

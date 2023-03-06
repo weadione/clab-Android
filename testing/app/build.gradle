@@ -93,5 +93,5 @@ dependencies {
 
     //onnx
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.14.0'
-//    implementation(name: "onnxruntime-release", ext: "aar")
+
 }
