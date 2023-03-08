@@ -133,7 +133,7 @@ class MainActivity : AppCompatActivity() {
             saveSkeletonData(poseLandmarks)
             isGraphRunning = true
         }
-        PermissionHelper.checkAndRequestCameraPermissions(this);
+        PermissionHelper.checkAndRequestCameraPermissions(this)
     }
 
     override fun onDestroy() {

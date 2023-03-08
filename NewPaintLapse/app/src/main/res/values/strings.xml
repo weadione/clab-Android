@@ -1,3 +1,21 @@
 <resources>
     <string name="app_name">NewPaintLapse</string>
+    <string name="timelapse_fragment_name">TimelapseMainFragment</string>
+    <string name="action_settings">Settings</string>
+    <!-- Strings used for fragments for navigation -->
+    <string name="video_fragment_label">Upload/Record Video</string>
+    <string name="timelapse_fragment_label">Timelapse</string>
+    <string name="recording_label">Recording</string>
+    <string name="record_label">Record</string>
+    <string name="timelapse_count">0</string>
+    <string name="har_label">No Activity</string>
+    <string name="detect_label">Detect</string>
+    <string name="next">Next</string>
+    <string name="previous">Previous</string>
+    <string name="upload">Upload</string>
+    <string name="live">Live</string>
+    <string name="timelapse">Timelapse</string>
+    <string name="del_timelapse">Delete Timelapse</string>
+    <string name="no_timelapse">No Timelapse</string>
+    <string name="no_camera_access">No Camera Access</string>
 </resources>
