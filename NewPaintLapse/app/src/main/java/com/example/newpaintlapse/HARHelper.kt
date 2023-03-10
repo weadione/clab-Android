@@ -61,15 +61,14 @@ class HARHelper(val context: Context) {
 
     private fun getSkelton() {
         val resString = harInference(convertSkeletonData())
-
+        Log.v("label:", label)
+        Log.v("time:", (SystemClock.uptimeMillis() - prevSamplingTime).toString())
 
         Handler(Looper.getMainLooper()).post(){
             harLabel.setTextColor(labelColor)
             harLabel.setText(resString)
         }
         clearSkeletonData()
-        Log.v("label:", label)
-        Log.v("time:", (SystemClock.uptimeMillis() - prevSamplingTime).toString())
         prevSamplingTime = SystemClock.uptimeMillis()
 
     }

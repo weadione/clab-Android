@@ -1,14 +1,18 @@
 package com.example.newpaintlapse
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import androidx.appcompat.app.AppCompatActivity
 import com.example.newpaintlapse.databinding.ActivityMainBinding
 import com.google.mediapipe.components.*
 import com.google.mediapipe.formats.proto.LandmarkProto
@@ -16,9 +20,9 @@ import com.google.mediapipe.framework.AndroidAssetUtil
 import com.google.mediapipe.framework.GraphTextureFrame
 import com.google.mediapipe.framework.Packet
 import com.google.mediapipe.framework.PacketGetter
+import com.google.mediapipe.framework.PacketListCallback
 import com.google.mediapipe.glutil.EglManager
-import java.util.Timer
-import kotlin.concurrent.fixedRateTimer
+import java.nio.ByteBuffer
 
 class MainActivity : AppCompatActivity() {
     private val TAG = "MainActivity"
@@ -26,13 +30,14 @@ class MainActivity : AppCompatActivity() {
     private val VIDEO_STREAM_NAME = "input_video"
     private val HAR_INPUT_LANDMARKS = "pose_world_landmarks"
     private val PFD_INPUT_LANDMARKS = "pose_landmarks"
-    private val PFD_INPUT_VIDEO = "input_video"
+    private val PFD_INPUT_VIDEO = "output_image"
     private val CAMERA_FACING = CameraHelper.CameraFacing.BACK
     private val FLIP_FRAMES_VERTICALLY = true
+    private val OUTPUT_LIST = listOf("pose_world_landmarks","pose_landmarks","output_image")
 
 
     private lateinit var binding: ActivityMainBinding
-
+    private lateinit var captureView: ImageView
 
     //mediapipe var
     private var previewFrameTexture: SurfaceTexture? = null
@@ -54,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
+        captureView = binding.captureView
         setContentView(binding.root)
         previewDisplayView = SurfaceView(this)
 
@@ -68,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         converter = ExternalTextureConverter(eglManager!!.context)
         converter!!.setFlipY(FLIP_FRAMES_VERTICALLY)
+        converter!!.setBufferPoolMaxSize(2)
         converter!!.setConsumer(processor)
         if (PermissionHelper.cameraPermissionsGranted(this)) {
             startCamera()
@@ -81,6 +88,7 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         converter!!.close()
         harHelper.stopSkeletonTimer()
+        Log.v("closed","")
 
     }
 
@@ -107,23 +115,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun addPacketCallbacks(){
-        processor!!.addPacketCallback(
-            HAR_INPUT_LANDMARKS
-        ){ packet: Packet ->
-            val landmarksRaw: ByteArray = PacketGetter.getProtoBytes(packet)
-            val poseLandmarks: LandmarkProto.LandmarkList =
-                LandmarkProto.LandmarkList.parseFrom(landmarksRaw)
+
+        processor!!.addMultiStreamCallback(
+            OUTPUT_LIST, false
+        ){packets:List<Packet>-> // packet0: poseWorldLandmark, 1:poseLandmark, 2:outputImage
+            if(!packets[1].isEmpty) {
+                val landmarksRaw: ByteArray = PacketGetter.getProtoBytes(packets[1])
+                val poseLandmarks: LandmarkProto.LandmarkList =
+                    LandmarkProto.LandmarkList.parseFrom(landmarksRaw)
                 harHelper.saveSkeletonData(poseLandmarks)
+
+                val width = PacketGetter.getImageWidth(packets[2])
+                val height = PacketGetter.getImageHeight(packets[2])
+                val buffer: ByteBuffer = ByteBuffer.allocateDirect(width * height * 4)
+                if (PacketGetter.getImageData(packets[2], buffer)) {
+                    val bitmap: Bitmap =
+                        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    bitmap.copyPixelsFromBuffer(buffer)
+//                    runOnUiThread {
+//                        captureView.setImageBitmap(bitmap)
+//                    }
+                }
+            }
         }
 
-//        processor!!.addPacketCallback(
-//            PFD_INPUT_VIDEO
-//        ){ packet: Packet ->
-//            val videoTextureFrame: GraphTextureFrame = PacketGetter.getTextureFrame(packet)
-//            videoTextureFrame.
-//
-//            harHelper.saveSkeletonData(poseLandmarks)
-//        }
     }
 
     private fun setPreviewDisplay(){
@@ -171,8 +186,10 @@ class MainActivity : AppCompatActivity() {
         // display size.
         converter!!.setSurfaceTextureAndAttachToGLContext(
             previewFrameTexture,
-            if (isCameraRotated) displaySize.height else displaySize.width,
-            if (isCameraRotated) displaySize.width else displaySize.height
+            if(isCameraRotated) 1080 else 1980,
+            if(isCameraRotated) 1980 else 1080
+//            if (isCameraRotated) displaySize.height else displaySize.width,
+//            if (isCameraRotated) displaySize.width else displaySize.height
         )
     }
 
