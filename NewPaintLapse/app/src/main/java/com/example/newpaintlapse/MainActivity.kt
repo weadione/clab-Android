@@ -119,8 +119,8 @@ class MainActivity : AppCompatActivity() {
         processor!!.addMultiStreamCallback(
             OUTPUT_LIST, false
         ){packets:List<Packet>-> // packet0: poseWorldLandmark, 1:poseLandmark, 2:outputImage
-            if(!packets[1].isEmpty) {
-                val landmarksRaw: ByteArray = PacketGetter.getProtoBytes(packets[1])
+            if(!packets[0].isEmpty) {
+                val landmarksRaw: ByteArray = PacketGetter.getProtoBytes(packets[0])
                 val poseLandmarks: LandmarkProto.LandmarkList =
                     LandmarkProto.LandmarkList.parseFrom(landmarksRaw)
                 harHelper.saveSkeletonData(poseLandmarks)
@@ -132,9 +132,9 @@ class MainActivity : AppCompatActivity() {
                     val bitmap: Bitmap =
                         Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                     bitmap.copyPixelsFromBuffer(buffer)
-//                    runOnUiThread {
-//                        captureView.setImageBitmap(bitmap)
-//                    }
+                    runOnUiThread {
+                        captureView.setImageBitmap(bitmap)
+                    }
                 }
             }
         }
