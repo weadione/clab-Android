@@ -1,12 +1,12 @@
 package com.example.newpaintlapse
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
+import android.hardware.SensorManager
 import android.os.Bundle
-import android.os.SystemClock
 import android.util.Log
 import android.util.Size
+import android.view.OrientationEventListener
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -17,10 +17,8 @@ import com.example.newpaintlapse.databinding.ActivityMainBinding
 import com.google.mediapipe.components.*
 import com.google.mediapipe.formats.proto.LandmarkProto
 import com.google.mediapipe.framework.AndroidAssetUtil
-import com.google.mediapipe.framework.GraphTextureFrame
 import com.google.mediapipe.framework.Packet
 import com.google.mediapipe.framework.PacketGetter
-import com.google.mediapipe.framework.PacketListCallback
 import com.google.mediapipe.glutil.EglManager
 import java.nio.ByteBuffer
 
@@ -36,8 +34,11 @@ class MainActivity : AppCompatActivity() {
     private val OUTPUT_LIST = listOf("pose_world_landmarks","pose_landmarks","output_image")
 
 
+
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var captureView: ImageView
+    private lateinit var mOrientationEventListener: OrientationEventListener
 
     //mediapipe var
     private var previewFrameTexture: SurfaceTexture? = null
@@ -46,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private var processor: FrameProcessor? = null
     private var converter: ExternalTextureConverter? = null
     private var cameraHelper: CameraXPreviewHelper? = null
+    private var rotateDegree = 0
 
     // helper and util variables
     private lateinit var harHelper: HARHelper
@@ -68,7 +70,17 @@ class MainActivity : AppCompatActivity() {
         addPacketCallbacks()
         harHelper.initOrt()
         PermissionHelper.checkAndRequestCameraPermissions(this);
+
+        mOrientationEventListener = object : OrientationEventListener(this, SensorManager.SENSOR_DELAY_NORMAL) {
+            override fun onOrientationChanged(orientation: Int) {
+                rotateDegree = orientation
+
+            }
+        }
+        mOrientationEventListener.enable()
     }
+
+
 
     override fun onResume() {
         super.onResume()
@@ -114,6 +126,7 @@ class MainActivity : AppCompatActivity() {
             .setFlipY(FLIP_FRAMES_VERTICALLY)
     }
 
+
     fun addPacketCallbacks(){
 
         processor!!.addMultiStreamCallback(
@@ -123,7 +136,7 @@ class MainActivity : AppCompatActivity() {
                 val landmarksRaw: ByteArray = PacketGetter.getProtoBytes(packets[0])
                 val poseLandmarks: LandmarkProto.LandmarkList =
                     LandmarkProto.LandmarkList.parseFrom(landmarksRaw)
-                harHelper.saveSkeletonData(poseLandmarks)
+                harHelper.saveSkeletonData(poseLandmarks,rotateDegree)
 
                 val width = PacketGetter.getImageWidth(packets[2])
                 val height = PacketGetter.getImageHeight(packets[2])
@@ -186,10 +199,10 @@ class MainActivity : AppCompatActivity() {
         // display size.
         converter!!.setSurfaceTextureAndAttachToGLContext(
             previewFrameTexture,
-            if(isCameraRotated) 1080 else 1980,
-            if(isCameraRotated) 1980 else 1080
-//            if (isCameraRotated) displaySize.height else displaySize.width,
-//            if (isCameraRotated) displaySize.width else displaySize.height
+//            if(isCameraRotated) 1080 else 1980,
+//            if(isCameraRotated) 1980 else 1080
+            if (isCameraRotated) displaySize.height else displaySize.width,
+            if (isCameraRotated) displaySize.width else displaySize.height
         )
     }
 
@@ -201,7 +214,7 @@ class MainActivity : AppCompatActivity() {
             // SurfaceHolder.Callback added to (the holder of) previewDisplayView.
             previewDisplayView!!.visibility = View.VISIBLE
         }
-        cameraHelper!!.startCamera(this, CAMERA_FACING,  /*surfaceTexture=*/null)
+        cameraHelper!!.startCamera(this, CAMERA_FACING,null)
     }
 
     override fun onRequestPermissionsResult(

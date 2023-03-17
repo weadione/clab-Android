@@ -73,18 +73,46 @@ class HARHelper(val context: Context) {
 
     }
 
-    public fun saveSkeletonData(poseLandmarks: LandmarkProto.LandmarkList){
+    public fun saveSkeletonData(poseLandmarks: LandmarkProto.LandmarkList, orentation: Int){
         var one_frame_skeleton = mk.d2array(25,3){0.0f}
         var landmark = poseLandmarks.landmarkList
+        val rotation = calculateOrientation(orentation)
         for(i: Int in 0..24) {
             if (landmark[i].visibility >= 0.75) {
-                one_frame_skeleton[i, 0] = landmark[i].x
-                one_frame_skeleton[i, 1] = landmark[i].y
+                when(rotation){
+                    0 ->{
+                        one_frame_skeleton[i, 0] = landmark[i].x
+                        one_frame_skeleton[i, 1] = landmark[i].y
+                    }
+                    1 ->{
+                        one_frame_skeleton[i, 0] = -landmark[i].y
+                        one_frame_skeleton[i, 1] = landmark[i].x
+                    }
+                    2 -> {
+                        one_frame_skeleton[i, 0] = -landmark[i].x
+                        one_frame_skeleton[i, 1] = -landmark[i].y
+                    }
+                    3-> {
+                        one_frame_skeleton[i, 0] = landmark[i].y
+                        one_frame_skeleton[i, 1] = -landmark[i].x
+                    }
+                }
                 one_frame_skeleton[i, 2] = landmark[i].z
             }
         }
         skeletonBuffer.add(one_frame_skeleton)
+        Log.v("left_shoulder","${one_frame_skeleton[11][0]}, ${one_frame_skeleton[11][1]}, ${one_frame_skeleton[11][2]}")
+        Log.v("right_shoulder","${one_frame_skeleton[12][0]}, ${one_frame_skeleton[12][1]}, ${one_frame_skeleton[12][2]}")
+        Log.v("","========================================================================================")
     }
+
+    private fun calculateOrientation(orentation: Int) = when (orentation) {
+       in 45 until 135 -> 1  // 90
+       in 135 until 225 -> 2 // 180
+       in 225 until 315 -> 3 //270
+       else -> 0  //portrait(0)
+    }
+
 
     private fun _sampleSkeletonData(){
         val curskeletonBuffer = ArrayList<D2Array<Float>>()
