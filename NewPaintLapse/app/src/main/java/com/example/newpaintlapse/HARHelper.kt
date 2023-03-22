@@ -24,7 +24,7 @@ import kotlin.math.exp
 
 class HARHelper(val context: Context) {
     //skeletonData val
-    private var frames_skeleton = mk.d3array(144,25,3){0.0f}
+    private var frames_skeleton = mk.d3array(50,25,3){0.0f}
     private var skeletonBuffer =  ArrayList<D2Array<Float>>()
     private lateinit var timer: Timer
 
@@ -101,9 +101,9 @@ class HARHelper(val context: Context) {
             }
         }
         skeletonBuffer.add(one_frame_skeleton)
-        Log.v("left_shoulder","${one_frame_skeleton[11][0]}, ${one_frame_skeleton[11][1]}, ${one_frame_skeleton[11][2]}")
-        Log.v("right_shoulder","${one_frame_skeleton[12][0]}, ${one_frame_skeleton[12][1]}, ${one_frame_skeleton[12][2]}")
-        Log.v("","========================================================================================")
+//        Log.v("left_shoulder","${one_frame_skeleton[11][0]}, ${one_frame_skeleton[11][1]}, ${one_frame_skeleton[11][2]}")
+//        Log.v("right_shoulder","${one_frame_skeleton[12][0]}, ${one_frame_skeleton[12][1]}, ${one_frame_skeleton[12][2]}")
+//        Log.v("","========================================================================================")
     }
 
     private fun calculateOrientation(orentation: Int) = when (orentation) {
@@ -121,9 +121,9 @@ class HARHelper(val context: Context) {
 
         val frameNum = curskeletonBuffer.size
         Log.v("num",frameNum.toString())
-        if(frameNum>=60) {
-            val skipInterval = frameNum / 60.0
-            for (i in 0 until 60)
+        if(frameNum>=40) {
+            val skipInterval = frameNum / 40.0
+            for (i in 0 until 40)
                 frames_skeleton[i] = curskeletonBuffer[(i * skipInterval).toInt()]
         }
         else
@@ -135,15 +135,14 @@ class HARHelper(val context: Context) {
     private fun convertSkeletonData() : MultiArray<Float, DN>{
         //dummy humman skeleton data to align the input dimension of the model
         _sampleSkeletonData()
-        val dummy_human_skeleton = mk.d3array(144,25,3) {0.0f}
 
-        val ret_skeleton = mk.stack(frames_skeleton,dummy_human_skeleton).transpose(3,1,2,0).expandDims(axis = 0)
+        val ret_skeleton = frames_skeleton.expandDims(axis = 0).transpose(3,1,2,0).expandDims(axis = 0)
         return ret_skeleton
     }
 
     private fun clearSkeletonData(){
         frames_skeleton =
-            mk.d3array(144, 25, 3) { 0.0f } // reinitialize landmarks array
+            mk.d3array(50, 25, 3) { 0.0f } // reinitialize landmarks array
     }
 
     private fun harInference(inputData: MultiArray<Float, DN>): String{
@@ -155,7 +154,7 @@ class HARHelper(val context: Context) {
 
     fun inferenceOrt(inputData: MultiArray<Float, DN>): FloatArray{
         val inputName = ortSession?.inputNames?.iterator()?.next()
-        val shape = longArrayOf(1, 3, 144, 25, 2)
+        val shape = longArrayOf(1, 3, 50, 25, 1)
         val ortEnv = OrtEnvironment.getEnvironment()
         val floatArrayData = inputData.toFloatArray()
         val buffer = FloatBuffer.allocate(floatArrayData.size)
