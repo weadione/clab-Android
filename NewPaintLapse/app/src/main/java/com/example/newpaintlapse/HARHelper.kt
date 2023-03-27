@@ -101,7 +101,7 @@ class HARHelper(val context: Context) {
             }
         }
         skeletonBuffer.add(one_frame_skeleton)
-//        Log.v("left_shoulder","${one_frame_skeleton[11][0]}, ${one_frame_skeleton[11][1]}, ${one_frame_skeleton[11][2]}")
+        Log.v("nose","${one_frame_skeleton[0][0]}, ${one_frame_skeleton[0][1]}, ${one_frame_skeleton[0][2]}")
 //        Log.v("right_shoulder","${one_frame_skeleton[12][0]}, ${one_frame_skeleton[12][1]}, ${one_frame_skeleton[12][2]}")
 //        Log.v("","========================================================================================")
     }

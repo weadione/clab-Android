@@ -151,7 +151,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
     }
 
     private fun setPreviewDisplay(){

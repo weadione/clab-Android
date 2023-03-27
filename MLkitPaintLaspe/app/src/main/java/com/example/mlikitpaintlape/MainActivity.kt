@@ -82,7 +82,7 @@ import java.util.concurrent.Executors
             harHelper.setSize(binding.viewFinder.width, binding.viewFinder.height)
             val allPoseLandmarks = pose.allPoseLandmarks
             harHelper.saveSkeletonData(pose, 0)
-            Log.v(TAG,allPoseLandmarks[0].position3D.x.toString()+","+allPoseLandmarks[0].position3D.y.toString()+","+allPoseLandmarks[0].position3D.z.toString() )
+//            Log.v(TAG,allPoseLandmarks[0].position3D.x.toString()+","+allPoseLandmarks[0].position3D.y.toString()+","+allPoseLandmarks[0].position3D.z.toString() )
         }catch(e:Exception){
         }
     }

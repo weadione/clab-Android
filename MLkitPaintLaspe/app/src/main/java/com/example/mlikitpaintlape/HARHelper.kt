@@ -22,8 +22,11 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.concurrent.fixedRateTimer
 import kotlin.math.exp
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 data class WorldPose(val x: Float, val y: Float, val z: Float, val visibility: Float)
+enum class RatioAnchor{SHOULDER, EAR, HIP, EYE}
 
 class HARHelper(val context: Context) {
     //skeletonData val
@@ -47,7 +50,9 @@ class HARHelper(val context: Context) {
     private var prevSamplingTime: Long = 0
     private var halfWidth: Int = 0
     private var halfHeight: Int = 0
-
+    private val anchorData = arrayOf(arrayOf(11,12),arrayOf(7,8),arrayOf(23,24),arrayOf(3,6))
+    private val ratioData = arrayOf(0.325f, 0.148f, 0.221f, 0.0325f)
+    private var anchor = RatioAnchor.SHOULDER
 
     public fun initOrt(){
         ortEnv = OrtEnvironment.getEnvironment(OrtLoggingLevel.ORT_LOGGING_LEVEL_FATAL)
@@ -112,8 +117,11 @@ class HARHelper(val context: Context) {
             }
         }
         skeletonBuffer.add(one_frame_skeleton)
-        Log.v("nose","${one_frame_skeleton[0][0]}, ${one_frame_skeleton[0][1]}, ${one_frame_skeleton[0][2]}")
-        Log.v("","========================================================================================")
+//        for(i in 0 until 25){
+//            Log.v("landmark","${i}: ${one_frame_skeleton[i][0]}, ${one_frame_skeleton[i][1]}, ${one_frame_skeleton[i][2]}")
+//        }
+        Log.v("landmark","${one_frame_skeleton[0][0]}, ${one_frame_skeleton[0][1]}, ${one_frame_skeleton[0][2]}")
+//         Log.v("","========================================================================================")
     }
 
     private fun local2WolrdLandmark(poseLandmark: List<PoseLandmark>): List<WorldPose>{
@@ -129,10 +137,30 @@ class HARHelper(val context: Context) {
             (leftHip.inFrameLikelihood+rightHip.inFrameLikelihood)/2
         )
 
+        for(i in RatioAnchor.values()){
+            if((poseLandmark[anchorData[i.ordinal][0]].inFrameLikelihood+poseLandmark[anchorData[i.ordinal][1]].inFrameLikelihood)/2.0 > 0.75){
+                anchor = i
+//                Log.e("anchor",i.ordinal.toString())
+                break
+            }
+            if(i == RatioAnchor.EYE)
+                Log.e("ratio","앵커가 없습니다.")
+        }
+
+        val distance = sqrt(
+            (poseLandmark[anchorData[anchor.ordinal][0]].position3D.x - poseLandmark[anchorData[anchor.ordinal][1]].position3D.x).pow(2)
+                    + (poseLandmark[anchorData[anchor.ordinal][0]].position3D.y - poseLandmark[anchorData[anchor.ordinal][1]].position3D.y).pow(2)
+                    + (poseLandmark[anchorData[anchor.ordinal][0]].position3D.z - poseLandmark[anchorData[anchor.ordinal][1]].position3D.z).pow(2)
+        )
+        val distRatio = ratioData[anchor.ordinal] / distance
+
+
+        Log.v("ratio","${distRatio}, ${anchor}")
+
         for(i in 0 until numLandmarks){
-            val x = (poseLandmark[i].position3D.x-centerHip.x)/halfWidth
-            val y = (poseLandmark[i].position3D.y-centerHip.y)/halfHeight
-            val z = (poseLandmark[i].position3D.z-centerHip.z)/halfWidth
+            val x = (poseLandmark[i].position3D.x-centerHip.x)*distRatio
+            val y = (poseLandmark[i].position3D.y-centerHip.y)*distRatio
+            val z = (poseLandmark[i].position3D.z-centerHip.z)*distRatio
             worldPoses.add(WorldPose(x,y,z,poseLandmark[i].inFrameLikelihood))
         }
 
